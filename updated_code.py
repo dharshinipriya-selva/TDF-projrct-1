@@ -69,6 +69,27 @@ def write_recent_log_lines(input_location: str, output_location: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing log files: {e}")
     
+def generate_markdown_index(input_location: str, output_location: str):
+    docs_dir = "data/"  # Searching in the correct location
+    output_path = "data/index.json"  # Updated output path for clarity
+
+    if not os.path.exists(docs_dir):
+        raise HTTPException(status_code=404, detail=f"Docs directory {docs_dir} does not exist.")
+
+    index = {}
+    for md_file in Path(docs_dir).rglob("*.md"):  # Search recursively
+        with open(md_file, 'r', encoding='utf-8') as file:
+            for line in file:
+                if line.startswith("# "):  # Extract first H1 header
+                    index[md_file.name] = line[2:].strip()
+                    break
+
+    with open(output_path, 'w', encoding='utf-8') as file:
+        json.dump(index, file, indent=4)
+
+    return {"status": "success", "message": f"Markdown index saved to {output_path}."}
+
+    
 BAKE_CAKE = {
     "type": "function",
     "function": {
@@ -137,9 +158,36 @@ WRITE_RECENT_LOG_LINES = {
     },
 }
 
+GENERATE_MARKDOWN_INDEX = {
+    "type": "function",
+    "function": {
+        "name": "generate_markdown_index",
+        "description": """
+            Finds all Markdown (.md) files in /data/docs/. Extracts the first H1 header (lines starting with #)
+            from each file and creates an index mapping filenames to their titles.
+            Input:
+                - input_location (string): The directory containing Markdown files.
+                - output_location (string): The path to the output index JSON file.
+            Output:
+                - A JSON object with a "status" field (string) indicating "Success" or "Error",
+                  and an "output_file_destination" field (string) containing the path to the generated index file.
+        """,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "input_location": {"type": "string", "description": "Directory containing Markdown files"},
+                "output_location": {"type": "string", "description": "Output file path for the index"},
+            },
+            "required": ["input_location", "output_location"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 AIPROXY_Token = os.getenv("AIPROXY_TOKEN")
 
-tools = [BAKE_CAKE, SORT_CONTACTS, WRITE_RECENT_LOG_LINES]
+tools = [BAKE_CAKE, SORT_CONTACTS, WRITE_RECENT_LOG_LINES, GENERATE_MARKDOWN_INDEX]
 
 def query_gpt(user_input: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
     if not AIPROXY_Token:
@@ -180,6 +228,7 @@ FUNCTIONS = {
     "bake_cake": bake_cake,
     "sort_contacts": sort_contacts,
     "write_recent_log_lines": write_recent_log_lines,
+    "generate_markdown_index": generate_markdown_index
 }
 
 @app.post("/run")  # Changed to POST
