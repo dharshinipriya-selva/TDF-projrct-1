@@ -7,6 +7,9 @@ import json
 from typing import Dict, Any
 from pydantic import BaseModel  # Import Pydantic
 from pathlib import Path, PureWindowsPath
+from datetime import datetime
+
+
 
 app = FastAPI()
 
@@ -24,8 +27,41 @@ app.add_middleware(
 class RunTaskRequest(BaseModel):
     task: str
 
-def bake_cake(number_people: int, flavour: str):
-    return {"message": f"Your {flavour} cake for {number_people} is now ready."}
+DATE_FORMATS = [
+    "%Y-%m-%d",          # 2022-01-19
+    "%d-%b-%Y",          # 07-Mar-2010
+    "%Y/%m/%d %H:%M:%S", # 2011/08/05 11:28:37
+    "%b %d, %Y",         # Oct 03, 2007
+    "%Y/%m/%d",          # 2009/07/10
+]
+
+def parse_date(date_str):
+    """ Try multiple date formats and return a valid datetime object. """
+    for fmt in DATE_FORMATS:
+        try:
+            return datetime.strptime(date_str.strip(), fmt)
+        except ValueError:
+            continue
+    return None 
+
+def count_wednesdays(input_location: str, output_location: str):
+    if not os.path.exists(input_location):
+        raise HTTPException(status_code=404, detail=f"Input file {input_location} does not exist.")
+
+    try:
+        with open(input_location, 'r', encoding='utf-8') as file:
+            dates = file.readlines()
+
+        wednesday_count = sum(
+            1 for date in dates if (parsed_date := parse_date(date)) and parsed_date.weekday() == 2
+        )
+
+        with open(output_location, 'w', encoding='utf-8') as file:
+            file.write(str(wednesday_count))
+
+        return {"status": "success", "message": f"Count of Wednesdays saved to {output_location}."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing dates: {e}")
 
     
 def sort_contacts(input_location: str, output_location: str):
@@ -90,22 +126,6 @@ def generate_markdown_index(input_location: str, output_location: str):
     return {"status": "success", "message": f"Markdown index saved to {output_path}."}
 
     
-BAKE_CAKE = {
-    "type": "function",
-    "function": {
-        "name": "bake_cake",
-        "description": "Bakes a cake with the specified flavour for a given number of people.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "number_people": {"type": "integer", "description": "Number of people"},
-                "flavour": {"type": "string", "description": "Cake flavour"}
-            },
-            "required": ["number_people", "flavour"],
-            "additionalProperties": False,
-        },
-    },
-}
 
 SORT_CONTACTS = {
     "type": "function",
@@ -184,10 +204,36 @@ GENERATE_MARKDOWN_INDEX = {
     },
 }
 
+COUNT_WEDNESDAYS = {
+    "type": "function",
+    "function": {
+        "name": "count_wednesdays",
+        "description": """
+            Reads dates from /data/dates.txt, counts the number of Wednesdays, and writes the count to /data/dates-wednesdays.txt.
+            Input:
+                - input_location (string): Path to the file containing dates.
+                - output_location (string): Path to the output file where the count should be written.
+            Output:
+                - A JSON object with a "status" field (string) indicating "Success" or "Error",
+                  and an "output_file_destination" field (string) containing the path to the result file.
+        """,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "input_location": {"type": "string", "description": "Path to the input file containing dates"},
+                "output_location": {"type": "string", "description": "Path to the output file"},
+            },
+            "required": ["input_location", "output_location"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 
 AIPROXY_Token = os.getenv("AIPROXY_TOKEN")
 
-tools = [BAKE_CAKE, SORT_CONTACTS, WRITE_RECENT_LOG_LINES, GENERATE_MARKDOWN_INDEX]
+tools = [SORT_CONTACTS, WRITE_RECENT_LOG_LINES, GENERATE_MARKDOWN_INDEX, COUNT_WEDNESDAYS]
 
 def query_gpt(user_input: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
     if not AIPROXY_Token:
@@ -225,10 +271,10 @@ def query_gpt(user_input: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"A general error occurred: {e}")
 
 FUNCTIONS = {
-    "bake_cake": bake_cake,
     "sort_contacts": sort_contacts,
     "write_recent_log_lines": write_recent_log_lines,
-    "generate_markdown_index": generate_markdown_index
+    "generate_markdown_index": generate_markdown_index,
+    "count_wednesdays": count_wednesdays,
 }
 
 @app.post("/run")  # Changed to POST
