@@ -18,7 +18,6 @@ app.add_middleware(
     allow_methods=["*"],  # Restrict in production
     allow_headers=["*"],  # Restrict in production
 )
-print()
 
 # Pydantic model for input validation
 class RunTaskRequest(BaseModel):
