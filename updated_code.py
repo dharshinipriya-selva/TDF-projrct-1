@@ -6,6 +6,7 @@ import os
 import json
 from typing import Dict, Any
 from pydantic import BaseModel  # Import Pydantic
+from pathlib import Path, PureWindowsPath
 
 app = FastAPI()
 
@@ -26,22 +27,6 @@ class RunTaskRequest(BaseModel):
 def bake_cake(number_people: int, flavour: str):
     return {"message": f"Your {flavour} cake for {number_people} is now ready."}
 
-# def sort_contacts(input_location: str, output_location: str):
-#     try:
-#         if not os.path.exists(input_location):
-#             return {"status": "Error", "message": f"Input file not found: {input_location}"}
-
-#         contacts = pd.read_json(input_location)
-#         contacts.sort_values(["last_name", "first_name"], inplace=True)
-#         contacts.to_json(output_location, orient="records", indent=4)
-#         return {"status": "Success", "output_file_destination": output_location}
-
-#     except FileNotFoundError:
-#         return {"status": "Error", "message": f"File not found: {input_location}"}
-#     except pd.errors.JSONDecodeError:
-#         return {"status": "Error", "message": f"Invalid JSON in file: {input_location}"}
-#     except Exception as e:
-#         return {"status": "Error", "message": f"An error occurred: {e}"}
     
 def sort_contacts(input_location: str, output_location: str):
 
@@ -64,6 +49,26 @@ def sort_contacts(input_location: str, output_location: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error sorting contacts: {e}")
 
+def write_recent_log_lines(input_location: str, output_location: str):
+    if not os.path.exists(input_location):
+        raise HTTPException(status_code=404, detail=f"Logs directory {input_location} does not exist.")
+
+    try:
+        log_files = sorted(Path(input_location).glob("*.log"), key=lambda f: f.stat().st_mtime, reverse=True)[:10]
+
+        with open(output_location, 'w', encoding='utf-8') as output_file:
+            for log_file in log_files:
+                with open(log_file, 'r', encoding='utf-8') as file:
+                    first_line = file.readline().strip()
+                    output_file.write(first_line + "\n")
+
+        return {
+            "status": "success",
+            "message": f"First lines of 10 most recent logs saved to {output_location}.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing log files: {e}")
+    
 BAKE_CAKE = {
     "type": "function",
     "function": {
@@ -106,9 +111,35 @@ SORT_CONTACTS = {
     },
 }
 
+WRITE_RECENT_LOG_LINES = {
+    "type": "function",
+    "function": {
+        "name": "write_recent_log_lines",
+        "description": """
+            Reads the first line of the 10 most recent .log files from the /data/logs/ directory
+            and writes them to /data/logs-recent.txt in descending order of recency.
+            Input:
+                - input_location (string): The directory containing the .log files.
+                - output_location (string): The path to the output file where the recent log lines should be written.
+            Output:
+                - A JSON object with a "status" field (string) indicating "Success" or "Error",
+                  and an "output_file_destination" field (string) containing the path to the output file.
+        """,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "input_location": {"type": "string", "description": "Directory path containing log files"},
+                "output_location": {"type": "string", "description": "Output file path"},
+            },
+            "required": ["input_location", "output_location"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 AIPROXY_Token = os.getenv("AIPROXY_TOKEN")
 
-tools = [BAKE_CAKE, SORT_CONTACTS]
+tools = [BAKE_CAKE, SORT_CONTACTS, WRITE_RECENT_LOG_LINES]
 
 def query_gpt(user_input: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
     if not AIPROXY_Token:
@@ -148,6 +179,7 @@ def query_gpt(user_input: str, tools: list[Dict[str, Any]]) -> Dict[str, Any]:
 FUNCTIONS = {
     "bake_cake": bake_cake,
     "sort_contacts": sort_contacts,
+    "write_recent_log_lines": write_recent_log_lines,
 }
 
 @app.post("/run")  # Changed to POST
